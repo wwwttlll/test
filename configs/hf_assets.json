@@ -1,0 +1,15 @@
+{
+  "models": [
+    {
+      "repo_id": "openai/clip-vit-large-patch14",
+      "local_dir": "assets/models/clip-vit-large-patch14"
+    }
+  ],
+  "datasets": [
+    {
+      "repo_id": "chuonghm/Refined-FashionIQ",
+      "split": "train",
+      "local_dir": "assets/datasets/refined-fashioniq"
+    }
+  ]
+}

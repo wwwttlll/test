@@ -1,0 +1,2 @@
+{"query_id":"q1","reference_embedding":[1.0,0.0,0.0],"modification_text":"make it elegant black","target_id":"img_t"}
+{"query_id":"q2","reference_embedding":[0.0,1.0,0.0],"modification_text":"remove background clutter","target_id":"img_u"}
