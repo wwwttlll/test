@@ -1,0 +1,3 @@
+{"image_id":"img_t","embedding":[0.9,0.1,0.0]}
+{"image_id":"img_u","embedding":[0.1,0.9,0.0]}
+{"image_id":"img_x","embedding":[0.0,0.0,1.0]}

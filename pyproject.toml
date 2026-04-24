@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tts-cir"
+version = "0.2.0"
+description = "TTS-CIR experiment toolkit with Hugging Face download/inference support"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+hf = [
+  "huggingface_hub>=0.30.0",
+  "datasets>=2.20.0",
+  "transformers>=4.45.0",
+  "torch>=2.2.0",
+  "faiss-cpu>=1.8.0"
+]
+dev = [
+  "pytest>=8.0.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
