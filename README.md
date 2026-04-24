@@ -13,6 +13,7 @@ This repository provides a runnable CIR experiment scaffold and **Hugging Face d
 - `scripts/download_hf_assets.py`: download models and datasets from Hugging Face
 - `configs/hf_assets.json`: model/dataset download config
 - `scripts/run_mvp.py`: local MVP runner from JSONL files
+- `scripts/run_hf_scaling.py`: full HF dataset scaling script
 - `tests/`: unit tests
 
 ---
@@ -77,18 +78,37 @@ python scripts/run_mvp.py \
   --queries data/queries.jsonl \
   --candidates data/candidates.jsonl \
   --out results/mvp.csv \
-  --k-values 1 2 4 8 16 \
-  --sampling-mode textual
+  --k-values 1 2 4 8 16 32 \
+  --sampling-mode textual \
+  --top-n 400 \
+  --seeds 42 43 44
 ```
 
 Output columns:
 
-- `k`, `r1`, `r5`, `r10`, `oracle_r100`, `forward_passes`, `wall_clock_s`
+- `k`, `r1/r5/r10` (with bootstrap CI), `oracle_r100`, `forward_passes`, `wall_clock_s`
 
 
 ---
 
-## 4) Run WISER baseline (arXiv:2602.23029)
+## 4) Run full HF dataset scaling
+
+```bash
+python scripts/run_hf_scaling.py \
+  --dataset-repo chuonghm/Refined-FashionIQ \
+  --split train \
+  --model-id openai/clip-vit-large-patch14 \
+  --k-values 1 2 4 8 16 32 \
+  --sampling-mode latent \
+  --top-n 400 \
+  --seeds 42 43 44 \
+  --out-csv results/hf_scaling.csv \
+  --out-json results/hf_scaling.json
+```
+
+---
+
+## 5) Run WISER baseline (arXiv:2602.23029)
 
 We add a **WISER-like serial refinement baseline runner** for fair-budget comparisons.
 
@@ -98,7 +118,9 @@ python scripts/run_wiser_baseline.py \
   --candidates data/candidates.jsonl \
   --out results/wiser_baseline.csv \
   --rounds 1 2 3 \
-  --sampling-mode textual
+  --sampling-mode textual \
+  --top-n 400 \
+  --seeds 42 43 44
 ```
 
 Baseline metadata/config:
@@ -107,7 +129,7 @@ Baseline metadata/config:
 
 ---
 
-## 5) Current experiment status
+## 6) Current experiment status
 
 See: `docs/experiment_status.md`
 

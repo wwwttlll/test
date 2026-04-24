@@ -4,7 +4,7 @@
 
 1. **MVP K-scaling dry-run on toy JSONL data**
    - Script: `scripts/run_mvp.py`
-   - Outputs: `k, r1, r5, r10, oracle_r100, forward_passes, wall_clock_s`
+   - Outputs: `k, r1/r5/r10 (+bootstrap CI), oracle_r100, forward_passes, wall_clock_s`
    - Purpose: verify pipeline correctness, not SOTA claims.
 
 2. **Unit tests for core components**
@@ -14,6 +14,12 @@
 3. **HF asset download workflow validated**
    - Script: `scripts/download_hf_assets.py`
    - Config: `configs/hf_assets.json`
+
+4. **Implemented experiment infra upgrades**
+   - Textual-hypothesis template bank (LLM-free)
+   - Latent mode now uses CLIP text direction (`text_embedding - ref_embedding`)
+   - Multi-seed + bootstrap CI reporting
+   - New full-run script: `scripts/run_hf_scaling.py`
 
 ## Pending experiments (must-run)
 

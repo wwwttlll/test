@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from dataclasses import dataclass
 from typing import Dict, List
 
 from .budget import BudgetTracker
 from .config import ExperimentConfig
-from .metrics import oracle_recall_at_k, recall_at_k
+from .metrics import bootstrap_mean_ci, oracle_recall_at_k, recall_at_k
 from .retrieval import Candidate, CandidateIndex
 from .sampling import sample_hypotheses
 from .scoring import aggregate_max_over_hypotheses, structured_score
@@ -28,8 +29,14 @@ class KResult:
     r5: float
     r10: float
     oracle_r100: float
-    forward_passes: int
-    wall_clock_s: float
+    r1_ci_low: float = 0.0
+    r1_ci_high: float = 0.0
+    r5_ci_low: float = 0.0
+    r5_ci_high: float = 0.0
+    r10_ci_low: float = 0.0
+    r10_ci_high: float = 0.0
+    forward_passes: int = 0
+    wall_clock_s: float = 0.0
 
 
 def _rank_for_query(query: Query, index: CandidateIndex, cfg: ExperimentConfig, k: int, budget: BudgetTracker) -> List[str]:
@@ -63,6 +70,50 @@ def _rank_for_query(query: Query, index: CandidateIndex, cfg: ExperimentConfig, 
 
 
 def run_experiment(queries: List[Query], candidates: List[Candidate], cfg: ExperimentConfig) -> List[KResult]:
+    if len(cfg.seeds) <= 1:
+        return _run_single_seed(queries, candidates, cfg)
+    by_seed: List[List[KResult]] = []
+    for seed in cfg.seeds:
+        seeded_cfg = replace(cfg, sampling=replace(cfg.sampling, seed=seed), seeds=[seed])
+        by_seed.append(_run_single_seed(queries, candidates, seeded_cfg))
+
+    merged: List[KResult] = []
+    for idx, k in enumerate(cfg.k_values):
+        r1_vals = [seed_res[idx].r1 for seed_res in by_seed]
+        r5_vals = [seed_res[idx].r5 for seed_res in by_seed]
+        r10_vals = [seed_res[idx].r10 for seed_res in by_seed]
+        oracle_vals = [seed_res[idx].oracle_r100 for seed_res in by_seed]
+        fp_vals = [seed_res[idx].forward_passes for seed_res in by_seed]
+        wall_vals = [seed_res[idx].wall_clock_s for seed_res in by_seed]
+
+        r1_mean, r1_low, r1_high = bootstrap_mean_ci(r1_vals, n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed)
+        r5_mean, r5_low, r5_high = bootstrap_mean_ci(r5_vals, n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed + 1)
+        r10_mean, r10_low, r10_high = bootstrap_mean_ci(r10_vals, n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed + 2)
+        oracle_mean, _, _ = bootstrap_mean_ci(oracle_vals, n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed + 3)
+        forward_mean, _, _ = bootstrap_mean_ci([float(v) for v in fp_vals], n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed + 4)
+        wall_mean, _, _ = bootstrap_mean_ci(wall_vals, n_bootstrap=cfg.bootstrap_samples, seed=cfg.sampling.seed + 5)
+
+        merged.append(
+            KResult(
+                k=k,
+                r1=r1_mean,
+                r5=r5_mean,
+                r10=r10_mean,
+                oracle_r100=oracle_mean,
+                r1_ci_low=r1_low,
+                r1_ci_high=r1_high,
+                r5_ci_low=r5_low,
+                r5_ci_high=r5_high,
+                r10_ci_low=r10_low,
+                r10_ci_high=r10_high,
+                forward_passes=int(round(forward_mean)),
+                wall_clock_s=wall_mean,
+            )
+        )
+    return merged
+
+
+def _run_single_seed(queries: List[Query], candidates: List[Candidate], cfg: ExperimentConfig) -> List[KResult]:
     index = CandidateIndex(candidates)
     all_results: List[KResult] = []
 

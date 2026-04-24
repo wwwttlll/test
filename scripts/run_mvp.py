@@ -42,12 +42,18 @@ def main() -> None:
     parser.add_argument("--queries", type=Path, required=True)
     parser.add_argument("--candidates", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=Path("results_mvp.csv"))
-    parser.add_argument("--k-values", type=int, nargs="+", default=[1, 2, 4, 8, 16])
+    parser.add_argument("--k-values", type=int, nargs="+", default=[1, 2, 4, 8, 16, 32])
     parser.add_argument("--sampling-mode", type=str, choices=["textual", "latent"], default="textual")
+    parser.add_argument("--top-n", type=int, default=400)
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--bootstrap-samples", type=int, default=1000)
     args = parser.parse_args()
 
     cfg = ExperimentConfig(
+        top_n=args.top_n,
         k_values=args.k_values,
+        seeds=args.seeds,
+        bootstrap_samples=args.bootstrap_samples,
         sampling=SamplingConfig(mode=args.sampling_mode),
         scoring=ScoringConfig(),
     )
@@ -56,9 +62,41 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["k", "r1", "r5", "r10", "oracle_r100", "forward_passes", "wall_clock_s"])
+        writer.writerow(
+            [
+                "k",
+                "r1",
+                "r1_ci_low",
+                "r1_ci_high",
+                "r5",
+                "r5_ci_low",
+                "r5_ci_high",
+                "r10",
+                "r10_ci_low",
+                "r10_ci_high",
+                "oracle_r100",
+                "forward_passes",
+                "wall_clock_s",
+            ]
+        )
         for r in results:
-            writer.writerow([r.k, f"{r.r1:.4f}", f"{r.r5:.4f}", f"{r.r10:.4f}", f"{r.oracle_r100:.4f}", r.forward_passes, f"{r.wall_clock_s:.4f}"])
+            writer.writerow(
+                [
+                    r.k,
+                    f"{r.r1:.4f}",
+                    f"{r.r1_ci_low:.4f}",
+                    f"{r.r1_ci_high:.4f}",
+                    f"{r.r5:.4f}",
+                    f"{r.r5_ci_low:.4f}",
+                    f"{r.r5_ci_high:.4f}",
+                    f"{r.r10:.4f}",
+                    f"{r.r10_ci_low:.4f}",
+                    f"{r.r10_ci_high:.4f}",
+                    f"{r.oracle_r100:.4f}",
+                    r.forward_passes,
+                    f"{r.wall_clock_s:.4f}",
+                ]
+            )
 
     print(f"Saved: {args.out}")
 

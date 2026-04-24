@@ -20,8 +20,10 @@ class ScoringConfig:
 
 @dataclass(frozen=True)
 class ExperimentConfig:
-    top_n: int = 200
-    k_values: List[int] = field(default_factory=lambda: [1, 2, 4, 8, 16])
+    top_n: int = 400
+    k_values: List[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
     sample_repeats: int = 1
+    seeds: List[int] = field(default_factory=lambda: [42, 43, 44])
+    bootstrap_samples: int = 1000
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
