@@ -84,3 +84,36 @@ python scripts/run_mvp.py \
 Output columns:
 
 - `k`, `r1`, `r5`, `r10`, `oracle_r100`, `forward_passes`, `wall_clock_s`
+
+
+---
+
+## 4) Run WISER baseline (arXiv:2602.23029)
+
+We add a **WISER-like serial refinement baseline runner** for fair-budget comparisons.
+
+```bash
+python scripts/run_wiser_baseline.py \
+  --queries data/queries.jsonl \
+  --candidates data/candidates.jsonl \
+  --out results/wiser_baseline.csv \
+  --rounds 1 2 3 \
+  --sampling-mode textual
+```
+
+Baseline metadata/config:
+
+- `configs/baselines/wiser_2602_23029.yaml`
+
+---
+
+## 5) Current experiment status
+
+See: `docs/experiment_status.md`
+
+This file tracks:
+
+- experiments already executed,
+- pending must-run blocks,
+- currently used model(s) and dataset(s),
+- baseline lock decision (WISER as primary baseline).

@@ -12,3 +12,6 @@ __all__ = [
     "HFCIRRetriever",
     "load_hf_dataset_split",
 ]
+from .baselines import BaselineQuery, RefinementResult, run_wiser_like_experiment
+
+__all__.extend(["BaselineQuery", "RefinementResult", "run_wiser_like_experiment"])
