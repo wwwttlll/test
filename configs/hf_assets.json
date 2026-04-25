@@ -8,7 +8,7 @@
   "datasets": [
     {
       "repo_id": "chuonghm/Refined-FashionIQ",
-      "split": "train",
+      "split": "validation",
       "local_dir": "assets/datasets/refined-fashioniq"
     }
   ]

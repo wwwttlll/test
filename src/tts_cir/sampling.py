@@ -38,22 +38,22 @@ class CLIPTextEncoder:
     def __init__(self, model_id: str = "openai/clip-vit-large-patch14", device: str = "cpu") -> None:
         try:
             import torch
-            from transformers import AutoTokenizer, CLIPTextModel
+            from transformers import AutoTokenizer, CLIPModel
         except Exception as exc:  # pragma: no cover - optional deps
             raise ImportError("Install transformers+torch to use latent text direction.") from exc
 
         self._torch = torch
         self._device = device
         self._tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self._model = CLIPTextModel.from_pretrained(model_id).to(device)
+        self._model = CLIPModel.from_pretrained(model_id).to(device)
         self._model.eval()
 
     def encode(self, texts: Sequence[str]) -> List[Vector]:
-        batch = self._tokenizer(list(texts), padding=True, truncation=True, return_tensors="pt")
-        batch = {k: v.to(self._device) for k, v in batch.items()}
+        inputs = self._tokenizer(list(texts), padding=True, truncation=True, return_tensors="pt")
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
         with self._torch.no_grad():
-            hidden = self._model(**batch).last_hidden_state
-            embeddings = hidden[:, 0, :]
+            outputs = self._model.get_text_features(**inputs)
+            embeddings = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0][:, 0]
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
         return embeddings.cpu().tolist()
 
@@ -92,10 +92,22 @@ def _match_dim(vec: Vector, dim: int) -> Vector:
 
 
 def text_to_direction(modification_text: str, ref_embedding: Vector, model_id: str = "openai/clip-vit-large-patch14", device: str = "cpu") -> Vector:
+    import numpy as np
     encoder = _get_text_encoder(model_id, device)
     text_embedding = encoder.encode([modification_text])[0]
     text_embedding = _match_dim(text_embedding, len(ref_embedding))
-    raw = [t - r for t, r in zip(text_embedding, ref_embedding)]
+
+    # Normalize reference embedding to unit vector before computing direction
+    ref_emb = np.array(ref_embedding)
+    ref_norm = np.linalg.norm(ref_emb)
+    if ref_norm > 0:
+        ref_normalized = ref_emb / ref_norm
+    else:
+        ref_normalized = ref_emb
+
+    # Compute direction in normalized space, then scale back
+    # This ensures the direction captures semantic change, not magnitude
+    raw = [t - r for t, r in zip(text_embedding, ref_normalized.tolist())]
     return unit(raw)
 
 
