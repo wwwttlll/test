@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import random
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from .config import SamplingConfig
 from .vector_ops import Vector, gaussian_vector, unit
@@ -32,6 +32,7 @@ class EditHypothesis:
     text: str
     weights: Dict[str, float]
     direction: Vector
+    proposal: Optional[Dict[str, Any]] = None  # Structured proposal for SPVI
 
 
 class CLIPTextEncoder:
@@ -105,8 +106,6 @@ def text_to_direction(modification_text: str, ref_embedding: Vector, model_id: s
     else:
         ref_normalized = ref_emb
 
-    # Compute direction in normalized space, then scale back
-    # This ensures the direction captures semantic change, not magnitude
     raw = [t - r for t, r in zip(text_embedding, ref_normalized.tolist())]
     return unit(raw)
 
@@ -118,17 +117,49 @@ def sample_hypotheses(mod_text: str, ref_embedding: Vector, k: int, cfg: Samplin
             hyp_text = _template_rewrite(mod_text, idx, cfg)
             noise = gaussian_vector(len(ref_embedding), cfg.noise_scale * cfg.temperature, cfg.seed + idx)
             direction = unit(noise)
-        elif cfg.mode == "latent":
-            hyp_text = _template_rewrite(mod_text, idx, cfg)
-            direction = text_to_direction(hyp_text, ref_embedding)
-        else:
-            raise ValueError(f"Unsupported sampling mode: {cfg.mode}")
-
-        hypotheses.append(
-            EditHypothesis(
+            hypotheses.append(EditHypothesis(
                 text=hyp_text,
                 weights=_extract_semantic_weights(hyp_text),
                 direction=direction,
-            )
-        )
+            ))
+        elif cfg.mode == "latent":
+            hyp_text = _template_rewrite(mod_text, idx, cfg)
+            direction = text_to_direction(hyp_text, ref_embedding)
+            hypotheses.append(EditHypothesis(
+                text=hyp_text,
+                weights=_extract_semantic_weights(hyp_text),
+                direction=direction,
+            ))
+        elif cfg.mode == "structured" or cfg.mode == "paraphrase":
+            # Import here to avoid circular dependency
+            from .llm_client import generate_structured_proposals, paraphrase_simple
+            
+            if cfg.mode == "structured":
+                proposals = generate_structured_proposals(
+                    ref_caption="",
+                    mod_text=mod_text,
+                    k=k,
+                )
+                for i, proposal in enumerate(proposals):
+                    canonical = proposal.get("canonical_instruction", mod_text)
+                    direction = text_to_direction(canonical, ref_embedding)
+                    hypotheses.append(EditHypothesis(
+                        text=canonical,
+                        weights=_extract_semantic_weights(canonical),
+                        direction=direction,
+                        proposal=proposal,
+                    ))
+            else:
+                # Paraphrase baseline (simple, no structure)
+                paraphrases = paraphrase_simple(mod_text, k=k)
+                for i, para in enumerate(paraphrases):
+                    direction = text_to_direction(para, ref_embedding)
+                    hypotheses.append(EditHypothesis(
+                        text=para,
+                        weights=_extract_semantic_weights(para),
+                        direction=direction,
+                    ))
+        else:
+            raise ValueError(f"Unsupported sampling mode: {cfg.mode}")
+    
     return hypotheses

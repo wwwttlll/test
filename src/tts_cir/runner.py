@@ -3,15 +3,16 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 
 from .budget import BudgetTracker
-from .config import ExperimentConfig
+from .config import ExperimentConfig, VerifierConfig
 from .metrics import bootstrap_mean_ci, oracle_recall_at_k, recall_at_k
 from .retrieval import Candidate, CandidateIndex
 from .sampling import sample_hypotheses
 from .scoring import aggregate_max_over_hypotheses, structured_score
 from .vector_ops import Vector, add
+from .verifier import get_preference_score, fuse_scores
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class Query:
     reference_embedding: Vector
     modification_text: str
     target_id: str
+    reference_caption: str = ""  # Optional: text description of reference
 
 
 @dataclass
@@ -39,7 +41,13 @@ class KResult:
     wall_clock_s: float = 0.0
 
 
-def _rank_for_query(query: Query, index: CandidateIndex, cfg: ExperimentConfig, k: int, budget: BudgetTracker) -> List[str]:
+def _rank_for_query(
+    query: Query,
+    candidates: List[Candidate],
+    cfg: ExperimentConfig,
+    k: int,
+    budget: BudgetTracker,
+) -> List[str]:
     hypotheses = sample_hypotheses(
         mod_text=query.modification_text,
         ref_embedding=query.reference_embedding,
@@ -47,25 +55,63 @@ def _rank_for_query(query: Query, index: CandidateIndex, cfg: ExperimentConfig, 
         cfg=cfg.sampling,
     )
 
-    per_candidate_scores: Dict[str, Dict[str, object]] = defaultdict(dict)
-
+    # Parallel retrieval with union
+    all_candidates: Set[str] = set()
+    per_candidate_scores: Dict[str, Dict[str, float]] = defaultdict(dict)
+    cand_embeddings: Dict[str, any] = {}
+    
     for h_idx, hyp in enumerate(hypotheses):
         query_vec = add(query.reference_embedding, hyp.direction, 1.0)
-        retrieved = index.top_n(query_vec, cfg.top_n)
+        
+        # Build a temporary index for this query
+        temp_index = CandidateIndex(candidates)
+        retrieved = temp_index.top_n(query_vec, cfg.top_n)
         budget.add_forward(len(retrieved) + 1)
-        for candidate, _ in retrieved:
-            per_candidate_scores[candidate.image_id][f"h_{h_idx}"] = structured_score(
-                ref_embedding=query.reference_embedding,
-                candidate=candidate,
-                hypothesis=hyp,
-                cfg=cfg.scoring,
-            )
+        
+        for cand, sim in retrieved:
+            all_candidates.add(cand.image_id)
+            per_candidate_scores[cand.image_id][f"h_{h_idx}"] = sim
+            cand_embeddings[cand.image_id] = {"embedding": cand.embedding, "image_id": cand.image_id}
 
-    ranked = sorted(
-        per_candidate_scores.items(),
-        key=lambda kv: aggregate_max_over_hypotheses(kv[1]),
-        reverse=True,
+    # Default: max-over-hypothesis ranking
+    if cfg.sampling.mode not in ("structured", "paraphrase"):
+        ranked = sorted(
+            per_candidate_scores.items(),
+            key=lambda kv: aggregate_max_over_hypotheses(kv[1]),
+            reverse=True,
+        )
+        return [image_id for image_id, _ in ranked]
+
+    # SPVI: pairwise verification + score fusion
+    candidate_list = list(all_candidates)
+    
+    # Get retrieval scores
+    retrieval_scores: Dict[str, float] = {}
+    for cid, scores_dict in per_candidate_scores.items():
+        # Aggregate across hypotheses
+        retrieval_scores[cid] = aggregate_max_over_hypotheses(scores_dict)
+    
+    # Get preference scores (if verifier is enabled)
+    if cfg.verifier.beta > 0:
+        pref_scores = get_preference_score(
+            ref_caption=query.reference_caption,
+            mod_text=query.modification_text,
+            candidate_ids=candidate_list,
+            cand_embeddings=cand_embeddings,
+            cfg=cfg.verifier,
+        )
+    else:
+        pref_scores = {cid: 0.0 for cid in candidate_list}
+    
+    # Fuse scores
+    fused_scores = fuse_scores(
+        retrieval_scores,
+        pref_scores,
+        beta=cfg.verifier.beta,
     )
+    
+    # Rank by fused scores
+    ranked = sorted(fused_scores.items(), key=lambda kv: kv[1], reverse=True)
     return [image_id for image_id, _ in ranked]
 
 
@@ -114,7 +160,6 @@ def run_experiment(queries: List[Query], candidates: List[Candidate], cfg: Exper
 
 
 def _run_single_seed(queries: List[Query], candidates: List[Candidate], cfg: ExperimentConfig) -> List[KResult]:
-    index = CandidateIndex(candidates)
     all_results: List[KResult] = []
 
     for k in cfg.k_values:
@@ -124,14 +169,21 @@ def _run_single_seed(queries: List[Query], candidates: List[Candidate], cfg: Exp
 
         for query in queries:
             ranked_by_h = []
+            
+            # Generate hypotheses
             hypotheses = sample_hypotheses(query.modification_text, query.reference_embedding, k, cfg.sampling)
-            for hyp in hypotheses:
+            
+            # Parallel retrieval
+            index = CandidateIndex(candidates)
+            for h_idx, hyp in enumerate(hypotheses):
                 query_vec = add(query.reference_embedding, hyp.direction, 1.0)
                 retrieved = index.top_n(query_vec, 100)
                 budget.add_forward(len(retrieved) + 1)
                 ranked_by_h.append([c.image_id for c, _ in retrieved])
-
-            final_rank = _rank_for_query(query, index, cfg, k, budget)
+            
+            # Final ranking with SPVI fusion if enabled
+            final_rank = _rank_for_query(query, candidates, cfg, k, budget)
+            
             r1 += recall_at_k(final_rank, query.target_id, 1)
             r5 += recall_at_k(final_rank, query.target_id, 5)
             r10 += recall_at_k(final_rank, query.target_id, 10)
